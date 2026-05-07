@@ -1,0 +1,2361 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ExamGuard — Smart Hall Allocator</title>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,500;0,700;1,400;1,700&family=DM+Mono:wght@300;400;500&family=Outfit:wght@300;400;500;600&display=swap"
+    rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    :root {
+      /* ── Warm Light Palette ── */
+      --cream: #f5f0e8;
+      --cream2: #ede8de;
+      --cream3: #e4ddd0;
+      --parchment: #f9f6ef;
+      --ink: #1a1612;
+      --ink2: #2e2720;
+      --ink3: #4a3f33;
+      --muted: #8c7d6e;
+      --muted2: #b5a696;
+      --muted3: #d4c9bb;
+
+      /* ── Accent ── */
+      --gold: #b8923a;
+      --gold2: #d4a84b;
+      --gold3: #f2c96e;
+      --gold-light: #fdf3dc;
+      --rust: #c0522a;
+      --rust2: #e06840;
+      --sage: #4a7c59;
+      --sage2: #5d9970;
+      --sage-light: #edf4ef;
+      --amber-dk: #7a4a15;
+
+      /* ── Surfaces ── */
+      --surface: #ffffff;
+      --surface2: #fdfaf5;
+      --surface3: #f7f2ea;
+      --border: #e0d8cc;
+      --border2: #cec4b4;
+
+      /* ── Typography ── */
+      --font-display: 'Playfair Display', serif;
+      --font-mono: 'DM Mono', monospace;
+      --font-body: 'Outfit', sans-serif;
+
+      /* ── Geometry ── */
+      --radius: 10px;
+      --radius2: 18px;
+      --shadow: 0 2px 16px rgba(26, 22, 18, 0.08);
+      --shadow2: 0 8px 40px rgba(26, 22, 18, 0.12);
+      --shadow3: 0 1px 3px rgba(26, 22, 18, 0.06);
+
+      /* ── Glow/Tints ── */
+      --glow-gold: 0 0 20px rgba(184, 146, 58, 0.2);
+      --glow-sage: 0 0 20px rgba(74, 124, 89, 0.2);
+      --glow-rust: 0 0 20px rgba(192, 82, 42, 0.2);
+    }
+
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      background: var(--parchment);
+      color: var(--ink);
+      font-family: var(--font-body);
+      min-height: 100vh;
+      overflow-x: hidden;
+      font-size: 14px;
+      line-height: 1.6;
+    }
+
+    /* ── Grain texture overlay ── */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+      opacity: 0.4;
+      pointer-events: none;
+      z-index: 1000;
+    }
+
+    /* ── Ambient gradients ── */
+    body::after {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background:
+        radial-gradient(ellipse 70% 50% at 5% 0%, rgba(184, 146, 58, 0.06) 0%, transparent 60%),
+        radial-gradient(ellipse 50% 60% at 95% 100%, rgba(74, 124, 89, 0.05) 0%, transparent 60%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* ════════════════════════════════════════
+   LAYOUT
+════════════════════════════════════════ */
+    .app {
+      display: flex;
+      min-height: 100vh;
+      position: relative;
+      z-index: 1;
+    }
+
+    /* ════════════════════════════════════════
+   SIDEBAR
+════════════════════════════════════════ */
+    .sidebar {
+      width: 248px;
+      background: var(--ink);
+      display: flex;
+      flex-direction: column;
+      position: fixed;
+      top: 0;
+      left: 0;
+      bottom: 0;
+      z-index: 100;
+      transition: transform .3s cubic-bezier(.4, 0, .2, 1);
+      border-right: 1px solid rgba(255, 255, 255, 0.04);
+    }
+
+    /* Subtle sidebar texture */
+    .sidebar::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(160deg, rgba(184, 146, 58, 0.04) 0%, transparent 50%);
+      pointer-events: none;
+    }
+
+    .sidebar-logo {
+      padding: 32px 24px 24px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+      position: relative;
+    }
+
+    .sidebar-logo .wordmark {
+      font-family: var(--font-display);
+      font-size: 20px;
+      font-weight: 700;
+      font-style: italic;
+      color: var(--cream);
+      letter-spacing: -0.3px;
+      line-height: 1;
+    }
+
+    .sidebar-logo .wordmark span {
+      color: var(--gold2);
+      font-style: normal;
+    }
+
+    .sidebar-logo .tagline {
+      font-family: var(--font-mono);
+      font-size: 9.5px;
+      color: rgba(255, 255, 255, 0.25);
+      margin-top: 6px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .sidebar-nav {
+      flex: 1;
+      padding: 20px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .nav-section-label {
+      font-family: var(--font-mono);
+      font-size: 9px;
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+      color: rgba(255, 255, 255, 0.2);
+      padding: 14px 10px 6px;
+    }
+
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 11px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all .18s ease;
+      font-size: 13px;
+      font-weight: 400;
+      color: rgba(255, 255, 255, 0.4);
+      border: 1px solid transparent;
+      user-select: none;
+      position: relative;
+    }
+
+    .nav-item:hover {
+      background: rgba(255, 255, 255, 0.05);
+      color: rgba(255, 255, 255, 0.75);
+    }
+
+    .nav-item.active {
+      background: rgba(184, 146, 58, 0.12);
+      color: var(--gold3);
+      border-color: rgba(184, 146, 58, 0.18);
+    }
+
+    .nav-item.active::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 2px;
+      height: 16px;
+      background: var(--gold2);
+      border-radius: 0 2px 2px 0;
+    }
+
+    .nav-icon {
+      width: 28px;
+      height: 28px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 7px;
+      font-size: 13px;
+      background: rgba(255, 255, 255, 0.04);
+      flex-shrink: 0;
+      transition: background .18s;
+    }
+
+    .nav-item.active .nav-icon {
+      background: rgba(184, 146, 58, 0.15);
+    }
+
+    .sidebar-footer {
+      padding: 16px 18px 28px;
+      border-top: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .status-pill {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      font-family: var(--font-mono);
+      font-size: 10.5px;
+      color: rgba(93, 153, 112, 0.9);
+      background: rgba(74, 124, 89, 0.1);
+      border: 1px solid rgba(74, 124, 89, 0.2);
+      padding: 9px 14px;
+      border-radius: 99px;
+    }
+
+    .pulse {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--sage2);
+      animation: pulse 2.5s infinite;
+      flex-shrink: 0;
+    }
+
+    @keyframes pulse {
+
+      0%,
+      100% {
+        opacity: 1;
+        box-shadow: 0 0 0 0 rgba(93, 153, 112, 0.5);
+      }
+
+      50% {
+        opacity: .7;
+        box-shadow: 0 0 0 5px rgba(93, 153, 112, 0);
+      }
+    }
+
+    /* ════════════════════════════════════════
+   MAIN
+════════════════════════════════════════ */
+    .main {
+      margin-left: 248px;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ════════════════════════════════════════
+   TOPBAR
+════════════════════════════════════════ */
+    .topbar {
+      height: 58px;
+      background: rgba(249, 246, 239, 0.85);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 36px;
+      position: sticky;
+      top: 0;
+      z-index: 50;
+    }
+
+    .topbar-title {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      font-weight: 400;
+      color: var(--muted);
+      letter-spacing: 0.04em;
+    }
+
+    .topbar-title span {
+      color: var(--ink);
+      font-weight: 500;
+    }
+
+    .topbar-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    /* ════════════════════════════════════════
+   BUTTONS
+════════════════════════════════════════ */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 18px;
+      border-radius: var(--radius);
+      font-family: var(--font-body);
+      font-size: 12.5px;
+      font-weight: 500;
+      cursor: pointer;
+      border: none;
+      transition: all .18s ease;
+      letter-spacing: 0.01em;
+    }
+
+    .btn-primary {
+      background: var(--ink);
+      color: var(--cream);
+      border: 1px solid var(--ink2);
+    }
+
+    .btn-primary:hover {
+      background: var(--ink2);
+      box-shadow: var(--shadow2);
+      transform: translateY(-1px);
+    }
+
+    .btn-gold {
+      background: var(--gold);
+      color: #fff;
+      border: 1px solid var(--amber-dk);
+    }
+
+    .btn-gold:hover {
+      background: var(--gold2);
+      box-shadow: var(--glow-gold);
+      transform: translateY(-1px);
+    }
+
+    .btn-ghost {
+      background: var(--surface);
+      color: var(--ink3);
+      border: 1px solid var(--border);
+    }
+
+    .btn-ghost:hover {
+      background: var(--cream2);
+      border-color: var(--border2);
+      color: var(--ink);
+    }
+
+    .btn-success {
+      background: var(--sage);
+      color: #fff;
+      border: 1px solid rgba(74, 124, 89, 0.8);
+    }
+
+    .btn-success:hover {
+      background: var(--sage2);
+      box-shadow: var(--glow-sage);
+      transform: translateY(-1px);
+    }
+
+    .btn-danger {
+      background: rgba(192, 82, 42, 0.08);
+      color: var(--rust);
+      border: 1px solid rgba(192, 82, 42, 0.2);
+    }
+
+    .btn-danger:hover {
+      background: rgba(192, 82, 42, 0.14);
+    }
+
+    .btn-sm {
+      padding: 6px 13px;
+      font-size: 11.5px;
+    }
+
+    .btn-lg {
+      padding: 11px 26px;
+      font-size: 13.5px;
+    }
+
+    /* ════════════════════════════════════════
+   ALGO BADGE
+════════════════════════════════════════ */
+    .algo-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-family: var(--font-mono);
+      font-size: 10.5px;
+      font-weight: 400;
+      padding: 5px 12px;
+      border-radius: 99px;
+      background: var(--gold-light);
+      color: var(--amber-dk);
+      border: 1px solid rgba(184, 146, 58, 0.3);
+      letter-spacing: 0.02em;
+    }
+
+    /* ════════════════════════════════════════
+   PAGES
+════════════════════════════════════════ */
+    .page {
+      display: none;
+      padding: 36px;
+      animation: fadeUp .3s ease;
+    }
+
+    .page.active {
+      display: block;
+    }
+
+    @keyframes fadeUp {
+      from {
+        opacity: 0;
+        transform: translateY(10px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .section-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      margin-bottom: 32px;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .section-title {
+      font-family: var(--font-display);
+      font-size: 28px;
+      font-weight: 700;
+      font-style: italic;
+      color: var(--ink);
+      letter-spacing: -0.5px;
+      line-height: 1.1;
+    }
+
+    .section-sub {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 5px;
+      letter-spacing: 0.06em;
+    }
+
+    /* ════════════════════════════════════════
+   CARDS
+════════════════════════════════════════ */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius2);
+      padding: 24px;
+      box-shadow: var(--shadow3);
+      transition: box-shadow .2s;
+    }
+
+    .card:hover {
+      box-shadow: var(--shadow);
+    }
+
+    .card-sm {
+      padding: 16px;
+    }
+
+    .card-lg {
+      padding: 32px;
+    }
+
+    /* ════════════════════════════════════════
+   STAT CARDS
+════════════════════════════════════════ */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+      margin-bottom: 28px;
+    }
+
+    .stat-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius2);
+      padding: 22px 24px;
+      position: relative;
+      overflow: hidden;
+      transition: all .22s ease;
+      box-shadow: var(--shadow3);
+    }
+
+    .stat-card:hover {
+      transform: translateY(-2px);
+      box-shadow: var(--shadow);
+      border-color: var(--border2);
+    }
+
+    /* Decorative corner accent */
+    .stat-card::after {
+      content: '';
+      position: absolute;
+      right: -12px;
+      top: -12px;
+      width: 60px;
+      height: 60px;
+      border-radius: 50%;
+      opacity: 0.07;
+    }
+
+    .stat-card.gold::after {
+      background: var(--gold);
+    }
+
+    .stat-card.sage::after {
+      background: var(--sage);
+    }
+
+    .stat-card.rust::after {
+      background: var(--rust);
+    }
+
+    .stat-card.ink::after {
+      background: var(--ink3);
+    }
+
+    /* Top rule per card variant */
+    .stat-card.gold {
+      border-top: 2px solid rgba(184, 146, 58, 0.5);
+    }
+
+    .stat-card.sage {
+      border-top: 2px solid rgba(74, 124, 89, 0.5);
+    }
+
+    .stat-card.rust {
+      border-top: 2px solid rgba(192, 82, 42, 0.5);
+    }
+
+    .stat-card.ink {
+      border-top: 2px solid rgba(74, 63, 51, 0.4);
+    }
+
+    .stat-label {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 500;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+    }
+
+    .stat-value {
+      font-family: var(--font-display);
+      font-size: 38px;
+      font-weight: 700;
+      letter-spacing: -1.5px;
+      margin: 6px 0 2px;
+      line-height: 1;
+    }
+
+    .stat-value.gold {
+      color: var(--gold);
+    }
+
+    .stat-value.sage {
+      color: var(--sage);
+    }
+
+    .stat-value.rust {
+      color: var(--rust);
+    }
+
+    .stat-value.ink {
+      color: var(--ink3);
+    }
+
+    .stat-meta {
+      font-size: 11.5px;
+      color: var(--muted);
+      font-family: var(--font-mono);
+    }
+
+    .stat-icon {
+      position: absolute;
+      right: 22px;
+      top: 50%;
+      transform: translateY(-50%);
+      font-size: 24px;
+      opacity: 0.12;
+    }
+
+    /* ════════════════════════════════════════
+   HALL GRID
+════════════════════════════════════════ */
+    .hall-header-row {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      margin-bottom: 8px;
+      padding-left: 30px;
+    }
+
+    .col-label {
+      font-family: var(--font-mono);
+      font-size: 9.5px;
+      color: var(--muted2);
+      text-align: center;
+      flex: 0 0 34px;
+    }
+
+    .hall-row {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      margin-bottom: 4px;
+    }
+
+    .row-label {
+      font-family: var(--font-mono);
+      font-size: 9.5px;
+      color: var(--muted2);
+      width: 24px;
+      text-align: right;
+      flex-shrink: 0;
+    }
+
+    .seat {
+      width: 34px;
+      height: 34px;
+      border-radius: 7px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: var(--font-mono);
+      font-size: 8.5px;
+      font-weight: 500;
+      cursor: pointer;
+      border: 1px solid transparent;
+      transition: all .15s ease;
+      position: relative;
+      flex-shrink: 0;
+      user-select: none;
+    }
+
+    .seat:hover {
+      transform: scale(1.18);
+      z-index: 10;
+    }
+
+    .seat:hover .seat-tooltip {
+      opacity: 1;
+      pointer-events: auto;
+      transform: translateX(-50%) translateY(-4px);
+    }
+
+    .seat-empty {
+      background: var(--cream2);
+      border-color: var(--border);
+      color: var(--muted2);
+    }
+
+    .seat-LOW {
+      background: rgba(74, 124, 89, 0.1);
+      border-color: rgba(74, 124, 89, 0.3);
+      color: var(--sage);
+    }
+
+    .seat-MEDIUM {
+      background: rgba(184, 146, 58, 0.12);
+      border-color: rgba(184, 146, 58, 0.35);
+      color: var(--gold);
+    }
+
+    .seat-HIGH {
+      background: rgba(192, 82, 42, 0.12);
+      border-color: rgba(192, 82, 42, 0.35);
+      color: var(--rust);
+      box-shadow: 0 0 8px rgba(192, 82, 42, 0.12);
+    }
+
+    .seat-tooltip {
+      position: absolute;
+      bottom: calc(100% + 8px);
+      left: 50%;
+      transform: translateX(-50%) translateY(0);
+      background: var(--ink);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 9px;
+      padding: 9px 13px;
+      min-width: 150px;
+      font-size: 11px;
+      font-family: var(--font-mono);
+      color: var(--cream);
+      white-space: nowrap;
+      pointer-events: none;
+      opacity: 0;
+      transition: all .15s ease;
+      z-index: 999;
+      box-shadow: var(--shadow2);
+    }
+
+    .seat-tooltip::after {
+      content: '';
+      position: absolute;
+      top: 100%;
+      left: 50%;
+      transform: translateX(-50%);
+      border: 5px solid transparent;
+      border-top-color: var(--ink);
+    }
+
+    /* ════════════════════════════════════════
+   TAGS & LEGEND
+════════════════════════════════════════ */
+    .legend {
+      display: flex;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .legend-dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 3px;
+    }
+
+    .progress-bar {
+      background: var(--cream2);
+      border-radius: 99px;
+      height: 5px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+    }
+
+    .progress-fill {
+      height: 100%;
+      border-radius: 99px;
+      transition: width .5s cubic-bezier(.34, 1.56, .64, 1);
+    }
+
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-family: var(--font-mono);
+      font-size: 10.5px;
+      padding: 2px 8px;
+      border-radius: 5px;
+      font-weight: 500;
+    }
+
+    .tag-sage {
+      background: var(--sage-light);
+      color: var(--sage);
+      border: 1px solid rgba(74, 124, 89, 0.2);
+    }
+
+    .tag-gold {
+      background: var(--gold-light);
+      color: var(--gold);
+      border: 1px solid rgba(184, 146, 58, 0.25);
+    }
+
+    .tag-rust {
+      background: rgba(192, 82, 42, 0.07);
+      color: var(--rust);
+      border: 1px solid rgba(192, 82, 42, 0.2);
+    }
+
+    .tag-ink {
+      background: rgba(26, 22, 18, 0.05);
+      color: var(--ink3);
+      border: 1px solid rgba(26, 22, 18, 0.1);
+    }
+
+    .tag-muted {
+      background: var(--cream2);
+      color: var(--muted);
+      border: 1px solid var(--border);
+    }
+
+    /* ════════════════════════════════════════
+   DATA TABLE
+════════════════════════════════════════ */
+    .data-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .data-table th {
+      text-align: left;
+      padding: 10px 14px;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--muted);
+      border-bottom: 1px solid var(--border);
+      background: var(--cream);
+    }
+
+    .data-table td {
+      padding: 10px 14px;
+      font-size: 12.5px;
+      border-bottom: 1px solid var(--border);
+      color: var(--ink3);
+    }
+
+    .data-table tr:last-child td {
+      border-bottom: none;
+    }
+
+    .data-table tr:hover td {
+      background: var(--cream);
+      color: var(--ink);
+    }
+
+    .data-table .mono {
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+    }
+
+    /* ════════════════════════════════════════
+   SIM STEPS
+════════════════════════════════════════ */
+    .sim-step {
+      display: flex;
+      align-items: flex-start;
+      gap: 14px;
+      padding: 14px 18px;
+      border-radius: var(--radius);
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      margin-bottom: 8px;
+      transition: all .25s ease;
+    }
+
+    .sim-step.running {
+      border-color: rgba(184, 146, 58, 0.4);
+      background: var(--gold-light);
+    }
+
+    .sim-step.done {
+      border-color: rgba(74, 124, 89, 0.3);
+      background: var(--sage-light);
+    }
+
+    .step-num {
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 600;
+      font-family: var(--font-mono);
+      flex-shrink: 0;
+      background: var(--cream2);
+      color: var(--muted);
+      transition: all .25s ease;
+    }
+
+    .sim-step.running .step-num {
+      background: var(--gold);
+      color: #fff;
+      animation: spin .8s linear infinite;
+    }
+
+    .sim-step.done .step-num {
+      background: var(--sage);
+      color: #fff;
+    }
+
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
+    .step-name {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--ink);
+      font-family: var(--font-body);
+    }
+
+    .step-desc {
+      font-size: 11.5px;
+      color: var(--muted);
+      margin-top: 2px;
+      font-family: var(--font-mono);
+    }
+
+    /* ════════════════════════════════════════
+   CODE BLOCK
+════════════════════════════════════════ */
+    .code-block {
+      background: var(--ink);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: var(--radius);
+      padding: 18px 20px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: rgba(245, 240, 232, 0.75);
+      overflow: auto;
+      line-height: 1.8;
+    }
+
+    .code-kw {
+      color: #d4a84b;
+    }
+
+    .code-fn {
+      color: #8fbcbb;
+    }
+
+    .code-str {
+      color: #a3be8c;
+    }
+
+    .code-cmt {
+      color: rgba(255, 255, 255, 0.25);
+    }
+
+    .code-num {
+      color: #bf616a;
+    }
+
+    /* ════════════════════════════════════════
+   COMPARE CARDS
+════════════════════════════════════════ */
+    .compare-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    .compare-card {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius2);
+      padding: 28px;
+      text-align: center;
+      transition: all .22s ease;
+      cursor: pointer;
+    }
+
+    .compare-card:hover {
+      border-color: var(--border2);
+      box-shadow: var(--shadow);
+    }
+
+    .compare-card.winner {
+      border-color: rgba(74, 124, 89, 0.4);
+      background: var(--sage-light);
+    }
+
+    .compare-card.loser {
+      opacity: 0.55;
+    }
+
+    .compare-score {
+      font-family: var(--font-display);
+      font-size: 52px;
+      font-weight: 700;
+      letter-spacing: -2px;
+      line-height: 1;
+    }
+
+    /* ════════════════════════════════════════
+   FORM INPUTS
+════════════════════════════════════════ */
+    .form-group {
+      margin-bottom: 16px;
+    }
+
+    .form-label {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--muted);
+      margin-bottom: 7px;
+      display: block;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .form-input,
+    .form-select {
+      width: 100%;
+      padding: 10px 14px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--ink);
+      font-family: var(--font-body);
+      font-size: 13px;
+      outline: none;
+      transition: all .18s;
+    }
+
+    .form-input:focus,
+    .form-select:focus {
+      border-color: var(--gold);
+      box-shadow: 0 0 0 3px rgba(184, 146, 58, 0.12);
+      background: var(--surface);
+    }
+
+    .form-select option {
+      background: var(--surface);
+      color: var(--ink);
+    }
+
+    /* ════════════════════════════════════════
+   DEPT CHIPS
+════════════════════════════════════════ */
+    .dept-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .dept-chip {
+      padding: 5px 14px;
+      border-radius: 99px;
+      font-size: 12px;
+      font-weight: 500;
+      font-family: var(--font-body);
+      cursor: pointer;
+      transition: all .18s;
+      border: 1.5px solid;
+    }
+
+    /* ════════════════════════════════════════
+   RISK METER
+════════════════════════════════════════ */
+    .risk-meter {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .risk-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .risk-label {
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+      color: var(--muted);
+      width: 130px;
+      flex-shrink: 0;
+    }
+
+    .risk-bar-wrap {
+      flex: 1;
+      height: 6px;
+      background: var(--cream2);
+      border-radius: 99px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+    }
+
+    .risk-bar {
+      height: 100%;
+      border-radius: 99px;
+      transition: width .6s cubic-bezier(.34, 1.56, .64, 1);
+    }
+
+    .risk-val {
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+      color: var(--ink3);
+      width: 32px;
+      text-align: right;
+      font-weight: 500;
+    }
+
+    /* ════════════════════════════════════════
+   TIMELINE
+════════════════════════════════════════ */
+    .timeline {
+      position: relative;
+      padding-left: 24px;
+    }
+
+    .timeline::before {
+      content: '';
+      position: absolute;
+      left: 8px;
+      top: 0;
+      bottom: 0;
+      width: 1px;
+      background: var(--border);
+    }
+
+    .timeline-item {
+      position: relative;
+      margin-bottom: 22px;
+    }
+
+    .timeline-item::before {
+      content: '';
+      position: absolute;
+      left: -20px;
+      top: 4px;
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: var(--gold);
+      box-shadow: 0 0 0 3px rgba(184, 146, 58, 0.15);
+    }
+
+    .timeline-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--ink);
+      font-family: var(--font-body);
+    }
+
+    .timeline-sub {
+      font-size: 11px;
+      color: var(--muted);
+      font-family: var(--font-mono);
+      margin-top: 3px;
+    }
+
+    /* ════════════════════════════════════════
+   MOBILE & RESPONSIVE
+════════════════════════════════════════ */
+    .mobile-menu-btn {
+      display: none;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 8px 12px;
+      color: var(--ink3);
+      cursor: pointer;
+      font-size: 16px;
+      transition: all .15s;
+    }
+
+    .mobile-menu-btn:hover {
+      background: var(--cream2);
+    }
+
+    @media (max-width:900px) {
+      .sidebar {
+        transform: translateX(-100%);
+      }
+
+      .sidebar.open {
+        transform: translateX(0);
+      }
+
+      .main {
+        margin-left: 0;
+      }
+
+      .mobile-menu-btn {
+        display: flex;
+      }
+
+      .stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      .grid-2,
+      .grid-3 {
+        grid-template-columns: 1fr;
+      }
+
+      .compare-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+
+    .grid-3 {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 20px;
+    }
+
+    .hall-scroll {
+      overflow-x: auto;
+      padding-bottom: 8px;
+    }
+
+    /* ════════════════════════════════════════
+   TOAST
+════════════════════════════════════════ */
+    #toast {
+      position: fixed;
+      bottom: 28px;
+      right: 28px;
+      z-index: 999;
+      background: var(--ink);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 12px;
+      padding: 14px 20px;
+      font-size: 12.5px;
+      font-family: var(--font-body);
+      color: var(--cream);
+      box-shadow: var(--shadow2);
+      transform: translateY(16px);
+      opacity: 0;
+      transition: all .3s cubic-bezier(.34, 1.56, .64, 1);
+      max-width: 320px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    #toast.show {
+      transform: translateY(0);
+      opacity: 1;
+    }
+
+    /* ════════════════════════════════════════
+   ANIMATIONS
+════════════════════════════════════════ */
+    @keyframes slideIn {
+      from {
+        opacity: 0;
+        transform: translateX(-12px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateX(0);
+      }
+    }
+
+    .anim-slide {
+      animation: slideIn .35s ease both;
+    }
+
+    .stagger>*:nth-child(1) {
+      animation-delay: .04s;
+    }
+
+    .stagger>*:nth-child(2) {
+      animation-delay: .09s;
+    }
+
+    .stagger>*:nth-child(3) {
+      animation-delay: .14s;
+    }
+
+    .stagger>*:nth-child(4) {
+      animation-delay: .19s;
+    }
+
+    /* ════════════════════════════════════════
+   SCROLLBAR
+════════════════════════════════════════ */
+    ::-webkit-scrollbar {
+      width: 5px;
+      height: 5px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: var(--cream);
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: var(--muted3);
+      border-radius: 99px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: var(--muted2);
+    }
+
+    /* ════════════════════════════════════════
+   DIVIDER
+════════════════════════════════════════ */
+    .section-divider {
+      height: 1px;
+      background: var(--border);
+      margin: 28px 0;
+      position: relative;
+    }
+
+    .section-divider::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 60px;
+      height: 1px;
+      background: var(--gold);
+    }
+
+    /* Pipeline arrows */
+    .pipeline-wrap {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .pipeline-step {
+      padding: 10px 16px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+      color: var(--ink3);
+      transition: all .18s;
+    }
+
+    .pipeline-step:hover {
+      border-color: var(--gold);
+      color: var(--gold);
+      background: var(--gold-light);
+    }
+
+    .pipeline-step strong {
+      color: var(--ink);
+      font-weight: 600;
+      display: block;
+      margin-bottom: 1px;
+    }
+
+    .pipeline-arrow {
+      color: var(--muted3);
+      font-size: 18px;
+    }
+  </style>
+</head>
+
+<body>
+
+  <div class="app">
+
+    <!-- ════════════════════════ SIDEBAR ════════════════════════ -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-logo">
+        <div class="wordmark"><em>Exam</em><span>Guard</span></div>
+        <div class="tagline">Smart Hall Allocator · v2.0</div>
+      </div>
+      <nav class="sidebar-nav">
+        <div class="nav-section-label">Main</div>
+        <div class="nav-item active" data-page="dashboard">
+          <div class="nav-icon">◫</div>Dashboard
+        </div>
+        <div class="nav-item" data-page="config">
+          <div class="nav-icon">⚙</div>Configuration
+        </div>
+        <div class="nav-section-label">Tools</div>
+        <div class="nav-item" data-page="allocation">
+          <div class="nav-icon">⊞</div>Hall Allocation
+        </div>
+        <div class="nav-item" data-page="analytics">
+          <div class="nav-icon">◈</div>Risk Analytics
+        </div>
+        <div class="nav-item" data-page="simulation">
+          <div class="nav-icon">▷</div>Simulation
+        </div>
+        <div class="nav-section-label">Reference</div>
+        <div class="nav-item" data-page="algorithms">
+          <div class="nav-icon">λ</div>Algorithms
+        </div>
+        <div class="nav-item" data-page="report">
+          <div class="nav-icon">≡</div>Report & Export
+        </div>
+      </nav>
+      <div class="sidebar-footer">
+        <div class="status-pill">
+          <div class="pulse"></div>
+          Algorithms Ready
+        </div>
+      </div>
+    </aside>
+
+    <!-- ════════════════════════ MAIN ════════════════════════ -->
+    <div class="main">
+      <header class="topbar">
+        <div style="display:flex;align-items:center;gap:12px;">
+          <button class="mobile-menu-btn" id="menuToggle">☰</button>
+          <div class="topbar-title" id="topbarTitle">Overview — <span>Dashboard</span></div>
+        </div>
+        <div class="topbar-actions">
+          <span class="algo-badge">Fisher-Yates · CSP · Greedy · Graph</span>
+          <button class="btn btn-primary" id="runAllocBtn">▶ Run Allocation</button>
+        </div>
+      </header>
+
+      <!-- ══════════ DASHBOARD ══════════ -->
+      <div id="page-dashboard" class="page active">
+        <div class="section-header">
+          <div>
+            <div class="section-title">System Overview</div>
+            <div class="section-sub">// real-time allocation status &amp; risk metrics</div>
+          </div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;">
+            <button class="btn btn-ghost btn-sm" id="resetBtn">↺ Reset</button>
+            <button class="btn btn-gold" id="dashRunBtn">▶ Run Allocation</button>
+          </div>
+        </div>
+
+        <div class="stats-grid stagger">
+          <div class="stat-card gold anim-slide">
+            <div class="stat-label">Total Seats</div>
+            <div class="stat-value gold" id="s-total">120</div>
+            <div class="stat-meta" id="s-total-meta">10 × 12 hall</div>
+            <div class="stat-icon">⬡</div>
+          </div>
+          <div class="stat-card sage anim-slide">
+            <div class="stat-label">Allocated</div>
+            <div class="stat-value sage" id="s-alloc">—</div>
+            <div class="stat-meta" id="s-alloc-meta">0% filled</div>
+            <div class="stat-icon">✓</div>
+          </div>
+          <div class="stat-card rust anim-slide">
+            <div class="stat-label">High Risk Seats</div>
+            <div class="stat-value rust" id="s-high">—</div>
+            <div class="stat-meta" id="s-high-meta">—</div>
+            <div class="stat-icon">⚠</div>
+          </div>
+          <div class="stat-card ink anim-slide">
+            <div class="stat-label">Safety Score</div>
+            <div class="stat-value ink" id="s-safety">—</div>
+            <div class="stat-meta" id="s-safety-meta">not run yet</div>
+            <div class="stat-icon">◈</div>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div class="card card-lg">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+              <div
+                style="font-family:var(--font-display);font-size:17px;font-weight:700;font-style:italic;color:var(--ink);">
+                Risk Distribution</div>
+              <div class="tag tag-sage">Live</div>
+            </div>
+            <canvas id="dashRiskChart" height="220"></canvas>
+          </div>
+          <div class="card card-lg">
+            <div
+              style="font-family:var(--font-display);font-size:17px;font-weight:700;font-style:italic;color:var(--ink);margin-bottom:18px;">
+              Allocation Progress</div>
+            <div style="margin-bottom:22px;">
+              <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
+                <span style="font-size:12px;color:var(--muted);font-family:var(--font-mono);">Seats filled</span>
+                <span class="tag tag-sage" id="prog-pct">0%</span>
+              </div>
+              <div class="progress-bar">
+                <div class="progress-fill" id="prog-bar"
+                  style="width:0%;background:linear-gradient(90deg,var(--sage),var(--gold2));"></div>
+              </div>
+            </div>
+            <div class="risk-meter" id="dept-dist">
+              <div style="font-size:12px;color:var(--muted);font-family:var(--font-mono);">Run allocation to see
+                department distribution</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="section-divider" style="margin-top:28px;"></div>
+
+        <div class="card" style="background:var(--surface2);">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;">
+            <div
+              style="font-family:var(--font-display);font-size:17px;font-weight:700;font-style:italic;color:var(--ink);">
+              Algorithm Pipeline</div>
+            <div class="tag tag-muted">Sequential</div>
+          </div>
+          <div class="pipeline-wrap">
+            <div class="pipeline-step"><strong>1. Fisher-Yates</strong>Shuffle — O(n)</div>
+            <div class="pipeline-arrow">→</div>
+            <div class="pipeline-step"><strong>2. CSP Check</strong>isSafe — O(1)</div>
+            <div class="pipeline-arrow">→</div>
+            <div class="pipeline-step"><strong>3. Greedy Assign</strong>Row-by-row — O(n²)</div>
+            <div class="pipeline-arrow">→</div>
+            <div class="pipeline-step"><strong>4. Graph Score</strong>8-dir risk — O(1)</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══════════ CONFIG ══════════ -->
+      <div id="page-config" class="page">
+        <div class="section-header">
+          <div>
+            <div class="section-title">Configuration</div>
+            <div class="section-sub">// hall setup &amp; student data</div>
+          </div>
+          <button class="btn btn-gold" id="applyConfigBtn">Apply &amp; Generate</button>
+        </div>
+        <div class="grid-2">
+          <div class="card">
+            <div
+              style="font-family:var(--font-display);font-size:16px;font-weight:700;font-style:italic;color:var(--ink);margin-bottom:20px;">
+              Hall Parameters</div>
+            <div class="form-group">
+              <label class="form-label">Rows</label>
+              <input type="number" class="form-input" id="cfg-rows" value="10" min="3" max="20">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Columns</label>
+              <input type="number" class="form-input" id="cfg-cols" value="12" min="3" max="20">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Number of Students</label>
+              <input type="number" class="form-input" id="cfg-students" value="100" min="1">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Allocation Mode</label>
+              <select class="form-select" id="cfg-mode">
+                <option value="constraint">Constraint Mode (CSP + Greedy)</option>
+                <option value="random">Random Mode</option>
+              </select>
+            </div>
+          </div>
+          <div class="card">
+            <div
+              style="font-family:var(--font-display);font-size:16px;font-weight:700;font-style:italic;color:var(--ink);margin-bottom:20px;">
+              Departments</div>
+            <div id="dept-config" class="dept-grid"></div>
+            <div class="section-divider"></div>
+            <div class="form-group">
+              <label class="form-label">Add Department</label>
+              <div style="display:flex;gap:8px;">
+                <input type="text" class="form-input" id="dept-name-input" placeholder="e.g. CHEM">
+                <input type="color" id="dept-color-input" value="#b8923a"
+                  style="width:44px;height:42px;border-radius:8px;border:1px solid var(--border);background:var(--cream2);cursor:pointer;padding:3px;flex-shrink:0;">
+                <button class="btn btn-ghost" id="addDeptBtn" style="flex-shrink:0;">+ Add</button>
+              </div>
+            </div>
+            <div
+              style="padding:14px;background:var(--cream);border:1px solid var(--border);border-radius:var(--radius);font-family:var(--font-mono);font-size:11px;color:var(--muted);line-height:1.8;"
+              id="dept-summary">Configure departments above</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══════════ HALL ALLOCATION ══════════ -->
+      <div id="page-allocation" class="page">
+        <div class="section-header">
+          <div>
+            <div class="section-title">Hall Allocation</div>
+            <div class="section-sub">// greedy CSP seat assignment — click any seat for details</div>
+          </div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+            <div class="legend">
+              <div class="legend-item">
+                <div class="legend-dot" style="background:rgba(74,124,89,.5);border:1px solid rgba(74,124,89,.4);">
+                </div>Low
+              </div>
+              <div class="legend-item">
+                <div class="legend-dot" style="background:rgba(184,146,58,.5);border:1px solid rgba(184,146,58,.4);">
+                </div>Medium
+              </div>
+              <div class="legend-item">
+                <div class="legend-dot" style="background:rgba(192,82,42,.5);border:1px solid rgba(192,82,42,.4);">
+                </div>High
+              </div>
+              <div class="legend-item">
+                <div class="legend-dot" style="background:var(--cream2);border:1px solid var(--border);"></div>Empty
+              </div>
+            </div>
+            <button class="btn btn-primary" id="allocRunBtn">▶ Run</button>
+          </div>
+        </div>
+        <div class="grid-2" style="align-items:start;">
+          <div class="card" style="padding:16px;background:var(--surface2);">
+            <div class="hall-scroll">
+              <div id="hallGrid"></div>
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:16px;">
+            <div class="card" id="seatDetailCard">
+              <div
+                style="font-family:var(--font-display);font-size:15px;font-weight:700;font-style:italic;color:var(--ink);margin-bottom:14px;">
+                Seat Detail</div>
+              <div style="font-size:12px;color:var(--muted);font-family:var(--font-mono);">Click a seat to inspect its
+                risk breakdown.</div>
+            </div>
+            <div class="card">
+              <div
+                style="font-family:var(--font-display);font-size:15px;font-weight:700;font-style:italic;color:var(--ink);margin-bottom:14px;">
+                All Seats</div>
+              <div style="max-height:320px;overflow:auto;">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th>Seat</th>
+                      <th>Student</th>
+                      <th>Dept</th>
+                      <th>Risk</th>
+                      <th>Score</th>
+                    </tr>
+                  </thead>
+                  <tbody id="seatTableBody"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══════════ ANALYTICS ══════════ -->
+      <div id="page-analytics" class="page">
+        <div class="section-header">
+          <div>
+            <div class="section-title">Risk Analytics</div>
+            <div class="section-sub">// weighted graph scoring — 8-directional adjacency analysis</div>
+          </div>
+        </div>
+        <div class="grid-2" style="margin-bottom:20px;">
+          <div class="card">
+            <div
+              style="font-family:var(--font-display);font-size:16px;font-weight:700;font-style:italic;color:var(--ink);margin-bottom:16px;">
+              Score Distribution</div>
+            <canvas id="riskDistChart" height="220"></canvas>
+          </div>
+          <div class="card">
+            <div
+              style="font-family:var(--font-display);font-size:16px;font-weight:700;font-style:italic;color:var(--ink);margin-bottom:16px;">
+              Department Breakdown</div>
+            <canvas id="deptRiskChart" height="220"></canvas>
+          </div>
+        </div>
+        <div class="grid-2">
+          <div class="card">
+            <div
+              style="font-family:var(--font-display);font-size:16px;font-weight:700;font-style:italic;color:var(--ink);margin-bottom:16px;">
+              Conflict Map</div>
+            <div id="conflictList" style="display:flex;flex-direction:column;gap:8px;">
+              <div style="font-size:12px;color:var(--muted);font-family:var(--font-mono);">Run allocation first.</div>
+            </div>
+          </div>
+          <div class="card">
+            <div
+              style="font-family:var(--font-display);font-size:16px;font-weight:700;font-style:italic;color:var(--ink);margin-bottom:16px;">
+              Risk Heatmap</div>
+            <canvas id="heatmapCanvas"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══════════ SIMULATION ══════════ -->
+      <div id="page-simulation" class="page">
+        <div class="section-header">
+          <div>
+            <div class="section-title">Simulation</div>
+            <div class="section-sub">// 10× Monte Carlo — constraint vs random comparison</div>
+          </div>
+          <button class="btn btn-gold btn-lg" id="simRunBtn">▶ Run 10× Simulation</button>
+        </div>
+        <div class="compare-grid" style="margin-bottom:20px;">
+          <div class="compare-card" id="comp-random">
+            <div
+              style="font-family:var(--font-mono);font-size:10px;color:var(--muted);margin-bottom:10px;text-transform:uppercase;letter-spacing:0.12em;">
+              Random Allocation</div>
+            <div class="compare-score" id="comp-random-score" style="color:var(--rust);">—</div>
+            <div style="font-size:11.5px;color:var(--muted);margin-top:8px;font-family:var(--font-mono);">avg safety
+              score</div>
+            <div style="margin-top:14px;" id="comp-random-stats"></div>
+          </div>
+          <div class="compare-card" id="comp-csp">
+            <div
+              style="font-family:var(--font-mono);font-size:10px;color:var(--muted);margin-bottom:10px;text-transform:uppercase;letter-spacing:0.12em;">
+              CSP + Greedy</div>
+            <div class="compare-score" id="comp-csp-score" style="color:var(--sage);">—</div>
+            <div style="font-size:11.5px;color:var(--muted);margin-top:8px;font-family:var(--font-mono);">avg safety
+              score</div>
+            <div style="margin-top:14px;" id="comp-csp-stats"></div>
+          </div>
+        </div>
+        <div class="card" style="margin-bottom:20px;background:var(--surface2);">
+          <div
+            style="font-family:var(--font-display);font-size:16px;font-weight:700;font-style:italic;color:var(--ink);margin-bottom:16px;">
+            Simulation Steps</div>
+          <div id="simSteps"></div>
+        </div>
+        <div class="card">
+          <div
+            style="font-family:var(--font-display);font-size:16px;font-weight:700;font-style:italic;color:var(--ink);margin-bottom:16px;">
+            Performance Comparison</div>
+          <canvas id="simChart" height="200"></canvas>
+        </div>
+      </div>
+
+      <!-- ══════════ ALGORITHMS ══════════ -->
+      <div id="page-algorithms" class="page">
+        <div class="section-header">
+          <div>
+            <div class="section-title">Algorithm Reference</div>
+            <div class="section-sub">// implementation details — exactly as used in this system</div>
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:20px;">
+          <div class="card">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
+              <div class="tag tag-gold">O(n) Time · O(1) Space</div>
+              <div
+                style="font-family:var(--font-display);font-size:18px;font-weight:700;font-style:italic;color:var(--ink);">
+                Fisher-Yates Shuffle</div>
+            </div>
+            <div style="font-size:13px;color:var(--ink3);margin-bottom:14px;line-height:1.7;">Produces an unbiased
+              random permutation. Used to shuffle students before greedy allocation — ensuring fairness with no
+              student-list ordering bias.</div>
+            <div class="code-block"><span class="code-kw">function</span> <span
+                class="code-fn">fisherYatesShuffle</span>(array) {
+              <span class="code-kw">const</span> n = array.length;
+              <span class="code-kw">for</span> (<span class="code-kw">let</span> i = n - <span
+                class="code-num">1</span>; i > <span class="code-num">0</span>; i--) {
+              <span class="code-cmt">// Pick random index j ∈ [0, i]</span>
+              <span class="code-kw">const</span> j = Math.floor(Math.random() * (i + <span class="code-num">1</span>));
+              [array[i], array[j]] = [array[j], array[i]];
+              }
+              <span class="code-kw">return</span> array;
+              }
+            </div>
+          </div>
+          <div class="card">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
+              <div class="tag tag-sage">O(1) Time · O(1) Space</div>
+              <div
+                style="font-family:var(--font-display);font-size:18px;font-weight:700;font-style:italic;color:var(--ink);">
+                CSP Constraint Check</div>
+            </div>
+            <div style="font-size:13px;color:var(--ink3);margin-bottom:14px;line-height:1.7;">Checks that placing a
+              student at (row, col) has no same-department neighbor to the left or above — preventing forward-look
+              conflicts in the greedy pass.</div>
+            <div class="code-block"><span class="code-kw">function</span> <span class="code-fn">isSafe</span>(hall, row,
+              col, student) {
+              <span class="code-kw">const</span> dirs = [[<span class="code-num">0</span>,<span
+                class="code-num">-1</span>], [<span class="code-num">-1</span>,<span class="code-num">0</span>]]; <span
+                class="code-cmt">// left, up</span>
+              <span class="code-kw">for</span> (<span class="code-kw">const</span> [dr, dc] of dirs) {
+              <span class="code-kw">const</span> [nr, nc] = [row+dr, col+dc];
+              <span class="code-kw">if</span> (nr >= <span class="code-num">0</span> && nc >= <span
+                class="code-num">0</span>)
+              <span class="code-kw">if</span> (hall[nr][nc]?.dept === student.dept) <span class="code-kw">return
+                false</span>;
+              }
+              <span class="code-kw">return true</span>;
+              }
+            </div>
+          </div>
+          <div class="card">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
+              <div class="tag tag-gold" style="background:rgba(184,146,58,0.1);">O(n²) Time · O(n) Space</div>
+              <div
+                style="font-family:var(--font-display);font-size:18px;font-weight:700;font-style:italic;color:var(--ink);">
+                Greedy Allocation</div>
+            </div>
+            <div style="font-size:13px;color:var(--ink3);margin-bottom:14px;line-height:1.7;">Iterates seats row-by-row.
+              For each empty seat, picks the first student from the shuffled pool that passes isSafe. No backtracking —
+              fast and practical for real exam halls.</div>
+            <div class="code-block"><span class="code-kw">function</span> <span
+                class="code-fn">greedyAllocation</span>(hall, students, rows, cols) {
+              <span class="code-fn">fisherYatesShuffle</span>(students); <span class="code-cmt">// fairness first</span>
+              <span class="code-kw">for</span> (<span class="code-kw">let</span> r = <span class="code-num">0</span>; r
+              < rows; r++) <span class="code-kw">for</span> (<span class="code-kw">let</span> c = <span
+                  class="code-num">0</span>; c < cols; c++) <span class="code-kw">for</span> (<span
+                    class="code-kw">let</span> i = <span class="code-num">0</span>; i < students.length; i++) <span
+                    class="code-kw">if</span> (<span class="code-fn">isSafe</span>(hall, r, c, students[i])) {
+                    hall[r][c] = students[i];
+                    students.<span class="code-fn">splice</span>(i, <span class="code-num">1</span>);
+                    <span class="code-kw">break</span>; <span class="code-cmt">// greedy — no backtracking</span>
+                    }
+                    <span class="code-kw">return</span> hall;
+                    }
+            </div>
+          </div>
+          <div class="card">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
+              <div class="tag tag-muted">O(1) Time · O(1) Space</div>
+              <div
+                style="font-family:var(--font-display);font-size:18px;font-weight:700;font-style:italic;color:var(--ink);">
+                8-Direction Graph Scorer</div>
+            </div>
+            <div style="font-size:13px;color:var(--ink3);margin-bottom:14px;line-height:1.7;">Checks all 8 neighbors.
+              Direct neighbors score +3, diagonals +2. Final score maps to LOW / MEDIUM / HIGH risk — drives the heatmap
+              and audit report.</div>
+            <div class="code-block"><span class="code-kw">const</span> DIRS = [
+              {d:[<span class="code-num">0</span>,<span class="code-num">1</span>],w:<span
+                class="code-num">3</span>},{d:[<span class="code-num">1</span>,<span class="code-num">0</span>],w:<span
+                class="code-num">3</span>},{d:[<span class="code-num">0</span>,<span class="code-num">-1</span>],w:<span
+                class="code-num">3</span>},{d:[<span class="code-num">-1</span>,<span class="code-num">0</span>],w:<span
+                class="code-num">3</span>},
+              {d:[<span class="code-num">1</span>,<span class="code-num">1</span>],w:<span
+                class="code-num">2</span>},{d:[<span class="code-num">1</span>,<span class="code-num">-1</span>],w:<span
+                class="code-num">2</span>},{d:[<span class="code-num">-1</span>,<span class="code-num">1</span>],w:<span
+                class="code-num">2</span>},{d:[<span class="code-num">-1</span>,<span
+                class="code-num">-1</span>],w:<span class="code-num">2</span>}
+              ];
+              <span class="code-kw">function</span> <span class="code-fn">getRiskScore</span>(hall, row, col, rows,
+              cols) {
+              <span class="code-kw">const</span> s = hall[row][col]; <span class="code-kw">if</span> (!s) <span
+                class="code-kw">return</span> <span class="code-num">0</span>;
+              <span class="code-kw">return</span> DIRS.<span class="code-fn">reduce</span>((sum,{d:[dr,dc],w}) => {
+              <span class="code-kw">const</span> [nr,nc] = [row+dr, col+dc];
+              <span class="code-kw">return</span> (nr>=<span class="code-num">0</span>&&nr&lt;rows&&nc>=<span
+                class="code-num">0</span>&&nc&lt;cols
+              &&hall[nr][nc]?.dept===s.dept) ? sum+w : sum;
+              }, <span class="code-num">0</span>);
+              }
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══════════ REPORT ══════════ -->
+      <div id="page-report" class="page">
+        <div class="section-header">
+          <div>
+            <div class="section-title">Allocation Report</div>
+            <div class="section-sub">// full audit trail &amp; export</div>
+          </div>
+          <div style="display:flex;gap:10px;">
+            <button class="btn btn-ghost" onclick="window.print()">⎙ Print</button>
+            <button class="btn btn-success" id="exportCSV">↓ Export CSV</button>
+          </div>
+        </div>
+        <div class="grid-2" style="margin-bottom:20px;">
+          <div class="card card-lg"
+            style="text-align:center;background:var(--ink);border-color:rgba(255,255,255,0.07);">
+            <div
+              style="font-family:var(--font-mono);font-size:10px;color:rgba(255,255,255,0.35);margin-bottom:10px;text-transform:uppercase;letter-spacing:0.14em;">
+              Final Safety Score</div>
+            <div id="report-score"
+              style="font-family:var(--font-display);font-size:80px;font-weight:700;letter-spacing:-4px;color:var(--gold2);line-height:1;">
+              —</div>
+            <div id="report-grade"
+              style="font-size:13px;color:rgba(255,255,255,0.4);margin-top:8px;font-family:var(--font-mono);">Run
+              allocation to generate</div>
+          </div>
+          <div class="card">
+            <div
+              style="font-family:var(--font-display);font-size:16px;font-weight:700;font-style:italic;color:var(--ink);margin-bottom:16px;">
+              Summary Stats</div>
+            <div class="risk-meter" id="report-stats">
+              <div style="font-size:12px;color:var(--muted);font-family:var(--font-mono);">Not generated yet.</div>
+            </div>
+          </div>
+        </div>
+        <div class="card" style="margin-bottom:20px;">
+          <div
+            style="font-family:var(--font-display);font-size:16px;font-weight:700;font-style:italic;color:var(--ink);margin-bottom:16px;">
+            Audit Log</div>
+          <div style="max-height:300px;overflow:auto;">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Student ID</th>
+                  <th>Name</th>
+                  <th>Dept</th>
+                  <th>Seat</th>
+                  <th>Row</th>
+                  <th>Col</th>
+                  <th>Risk</th>
+                  <th>Score</th>
+                </tr>
+              </thead>
+              <tbody id="reportTableBody">
+                <tr>
+                  <td colspan="9"
+                    style="text-align:center;color:var(--muted);font-family:var(--font-mono);padding:20px;">No data —
+                    run allocation first.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="card">
+          <div
+            style="font-family:var(--font-display);font-size:16px;font-weight:700;font-style:italic;color:var(--ink);margin-bottom:16px;">
+            Run Timeline</div>
+          <div class="timeline" id="reportTimeline">
+            <div style="font-size:12px;color:var(--muted);font-family:var(--font-mono);">Empty.</div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /main -->
+  </div><!-- /app -->
+
+  <div id="toast"></div>
+
+  <script>
+    // ════════════════════════════════════════
+    //  STATE
+    // ════════════════════════════════════════
+    const state = {
+      rows: 10, cols: 12, numStudents: 100, mode: 'constraint',
+      departments: [
+        { name: 'CSE', color: '#b8923a' },
+        { name: 'ECE', color: '#4a7c59' },
+        { name: 'MECH', color: '#c0522a' },
+        { name: 'CIVIL', color: '#6b5b93' },
+        { name: 'IT', color: '#2980b9' },
+      ],
+      hall: [], students: [], scores: [],
+      allocated: false, auditLog: [], timeline: [],
+    };
+
+    // ════════════════════════════════════════
+    //  ALGORITHMS
+    // ════════════════════════════════════════
+    function fisherYatesShuffle(arr) {
+      const a = [...arr];
+      for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1));[a[i], a[j]] = [a[j], a[i]]; }
+      return a;
+    }
+    function isSafe(hall, row, col, student) {
+      for (const [dr, dc] of [[0, -1], [-1, 0]]) {
+        const nr = row + dr, nc = col + dc;
+        if (nr >= 0 && nc >= 0 && hall[nr][nc]?.dept === student.dept) return false;
+      }
+      return true;
+    }
+    function greedyAllocation(hall, students, rows, cols) {
+      let pool = fisherYatesShuffle(students);
+      for (let r = 0; r < rows; r++)for (let c = 0; c < cols; c++)
+        for (let i = 0; i < pool.length; i++)
+          if (isSafe(hall, r, c, pool[i])) { hall[r][c] = pool[i]; pool.splice(i, 1); break; }
+      return { hall, unplaced: pool };
+    }
+    function randomAllocation(hall, students) {
+      let pool = fisherYatesShuffle(students), idx = 0;
+      for (let r = 0; r < hall.length; r++)for (let c = 0; c < hall[0].length; c++)
+        if (idx < pool.length) hall[r][c] = pool[idx++];
+      return hall;
+    }
+    const DIRS = [{ d: [0, 1], w: 3 }, { d: [1, 0], w: 3 }, { d: [0, -1], w: 3 }, { d: [-1, 0], w: 3 }, { d: [1, 1], w: 2 }, { d: [1, -1], w: 2 }, { d: [-1, 1], w: 2 }, { d: [-1, -1], w: 2 }];
+    function getRiskScore(hall, row, col, rows, cols) {
+      const s = hall[row][col]; if (!s) return 0;
+      return DIRS.reduce((sum, { d: [dr, dc], w }) => { const nr = row + dr, nc = col + dc; return (nr >= 0 && nr < rows && nc >= 0 && nc < cols && hall[nr][nc]?.dept === s.dept) ? sum + w : sum; }, 0);
+    }
+    function getRiskCategory(score) { return score < 3 ? 'LOW' : score <= 4 ? 'MEDIUM' : 'HIGH'; }
+    function computeAllScores(hall, rows, cols) {
+      return Array.from({ length: rows }, (_, r) => Array.from({ length: cols }, (_, c) => getRiskScore(hall, r, c, rows, cols)));
+    }
+    function calcSafetyScore(hall, rows, cols) {
+      let low = 0, med = 0, high = 0, total = 0;
+      for (let r = 0; r < rows; r++)for (let c = 0; c < cols; c++) {
+        if (!hall[r][c]) continue; total++;
+        const cat = getRiskCategory(getRiskScore(hall, r, c, rows, cols));
+        if (cat === 'LOW') low++; else if (cat === 'MEDIUM') med++; else high++;
+      }
+      if (!total) return { score: 0, low, med, high, total };
+      return { score: Math.round(((low * 1 + med * 0.6 + high * 0.1) / total) * 100), low, med, high, total };
+    }
+    function generateStudents(num, depts) {
+      const F = ['Aarav', 'Priya', 'Ravi', 'Sita', 'Amit', 'Neha', 'Kiran', 'Divya', 'Suresh', 'Ananya', 'Raj', 'Meera', 'Arjun', 'Kavya', 'Vikram'];
+      const L = ['Sharma', 'Kumar', 'Patel', 'Gupta', 'Singh', 'Reddy', 'Nair', 'Joshi', 'Verma', 'Mehta'];
+      return fisherYatesShuffle(Array.from({ length: num }, (_, i) => {
+        const dept = depts[i % depts.length].name;
+        return { id: `STU${String(i + 1).padStart(4, '0')}`, name: F[i % F.length] + ' ' + L[Math.floor(i / F.length) % L.length], dept };
+      }));
+    }
+    function emptyHall(rows, cols) { return Array.from({ length: rows }, () => Array(cols).fill(null)); }
+
+    // ════════════════════════════════════════
+    //  RUN ALLOCATION
+    // ════════════════════════════════════════
+    function runAllocation() {
+      const { rows, cols, numStudents, departments, mode } = state;
+      state.students = generateStudents(numStudents, departments);
+      state.hall = emptyHall(rows, cols);
+      const pool = [...state.students];
+      if (mode === 'constraint') { const res = greedyAllocation(state.hall, pool, rows, cols); state.hall = res.hall; }
+      else state.hall = randomAllocation(state.hall, pool);
+      state.scores = computeAllScores(state.hall, rows, cols);
+      state.allocated = true;
+      state.auditLog = [];
+      for (let r = 0; r < rows; r++)for (let c = 0; c < cols; c++) {
+        const s = state.hall[r][c]; if (!s) continue;
+        const sc = state.scores[r][c];
+        state.auditLog.push({ student: s, row: r, col: c, score: sc, risk: getRiskCategory(sc), seat: `R${r + 1}C${c + 1}` });
+      }
+      const { score } = calcSafetyScore(state.hall, rows, cols);
+      state.timeline.unshift({ time: new Date().toLocaleTimeString(), title: `Allocation #${state.timeline.length + 1}`, desc: `${mode === 'constraint' ? 'CSP+Greedy' : 'Random'} · ${state.auditLog.length} seats · ${score}% safety` });
+      showToast('✓ Allocation complete — ' + state.auditLog.length + ' seats filled');
+      refreshAll();
+    }
+
+    // ════════════════════════════════════════
+    //  HALL GRID
+    // ════════════════════════════════════════
+    function renderHallGrid() {
+      const { hall, scores, rows, cols } = state;
+      const c = document.getElementById('hallGrid'); c.innerHTML = '';
+      const colRow = document.createElement('div'); colRow.className = 'hall-header-row';
+      colRow.innerHTML = '<div style="width:24px;flex-shrink:0;"></div>';
+      for (let i = 0; i < cols; i++) { const el = document.createElement('div'); el.className = 'col-label'; el.textContent = i + 1; colRow.appendChild(el); }
+      c.appendChild(colRow);
+      for (let r = 0; r < rows; r++) {
+        const rowEl = document.createElement('div'); rowEl.className = 'hall-row';
+        const lbl = document.createElement('div'); lbl.className = 'row-label'; lbl.textContent = r + 1; rowEl.appendChild(lbl);
+        for (let col = 0; col < cols; col++) {
+          const s = hall[r][col], sc = scores[r]?.[col] ?? 0, cat = s ? getRiskCategory(sc) : 'empty';
+          const dept = s ? state.departments.find(d => d.name === s.dept) : null;
+          const seat = document.createElement('div');
+          seat.className = `seat ${s ? 'seat-' + cat : 'seat-empty'}`;
+          seat.textContent = s ? s.dept.substring(0, 3) : '—';
+          if (s && dept) seat.style.borderColor = dept.color + '44';
+          const tip = document.createElement('div'); tip.className = 'seat-tooltip';
+          tip.innerHTML = s ? `<b style="color:var(--gold2)">${s.name}</b><br>${s.id} · ${s.dept}<br>Risk: ${cat} (${sc})` : `Empty R${r + 1}C${col + 1}`;
+          seat.appendChild(tip);
+          seat.addEventListener('click', () => showSeatDetail(r, col));
+          rowEl.appendChild(seat);
+        }
+        c.appendChild(rowEl);
+      }
+    }
+    function showSeatDetail(r, c) {
+      const { hall, scores, rows, cols } = state;
+      const s = hall[r][c], sc = scores[r]?.[c] ?? 0, cat = s ? getRiskCategory(sc) : 'empty';
+      const card = document.getElementById('seatDetailCard');
+      if (!s) { card.innerHTML = `<div style="font-family:var(--font-display);font-size:15px;font-weight:700;font-style:italic;margin-bottom:10px;">R${r + 1}·C${c + 1} — Empty</div><div style="font-size:12px;color:var(--muted);font-family:var(--font-mono);">No student assigned.</div>`; return; }
+      const tagCls = cat === 'LOW' ? 'tag-sage' : cat === 'MEDIUM' ? 'tag-gold' : 'tag-rust';
+      const neighbors = DIRS.map(({ d: [dr, dc], w }) => { const nr = r + dr, nc = c + dc; if (nr >= 0 && nr < rows && nc >= 0 && nc < cols && hall[nr][nc]?.dept === s.dept) return { nr, nc, w }; return null; }).filter(Boolean);
+      card.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+      <div style="font-family:var(--font-display);font-weight:700;font-size:16px;font-style:italic;color:var(--ink);">${s.name}</div>
+      <div class="tag ${tagCls}">${cat}</div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px;font-family:var(--font-mono);font-size:11.5px;color:var(--muted);">
+      <div>ID: <span style="color:var(--ink);font-weight:500;">${s.id}</span></div>
+      <div>Dept: <span style="color:var(--ink);font-weight:500;">${s.dept}</span></div>
+      <div>Seat: <span style="color:var(--ink);font-weight:500;">R${r + 1}·C${c + 1}</span></div>
+      <div>Score: <span style="color:var(--ink);font-weight:500;">${sc}</span></div>
+    </div>
+    <div style="font-family:var(--font-mono);font-size:10px;color:var(--muted);margin-bottom:10px;text-transform:uppercase;letter-spacing:0.1em;">Risk Factors</div>
+    <div class="risk-meter">
+      <div class="risk-row"><div class="risk-label">Proximity risk</div><div class="risk-bar-wrap"><div class="risk-bar" style="width:${Math.min(sc * 10, 100)}%;background:${cat === 'HIGH' ? 'var(--rust)' : cat === 'MEDIUM' ? 'var(--gold)' : 'var(--sage)'};"></div></div><div class="risk-val">${sc}</div></div>
+      <div class="risk-row"><div class="risk-label">Conflicts</div><div class="risk-bar-wrap"><div class="risk-bar" style="width:${neighbors.length * 25}%;background:var(--gold);"></div></div><div class="risk-val">${neighbors.length}</div></div>
+    </div>
+    ${neighbors.length ? `<div style="margin-top:10px;font-size:11px;color:var(--muted);font-family:var(--font-mono);">Conflicts at: ${neighbors.map(n => `R${n.nr + 1}C${n.nc + 1}`).join(', ')}</div>` : ''}
+  `;
+    }
+    function renderSeatTable() {
+      const tbody = document.getElementById('seatTableBody'); tbody.innerHTML = '';
+      if (!state.allocated) { tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--muted);font-family:var(--font-mono);padding:20px;">Not run yet</td></tr>'; return; }
+      state.auditLog.forEach(e => {
+        const tc = e.risk === 'LOW' ? 'tag-sage' : e.risk === 'MEDIUM' ? 'tag-gold' : 'tag-rust';
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td class="mono">${e.seat}</td><td>${e.student.name}</td><td><span class="tag tag-ink">${e.student.dept}</span></td><td><span class="tag ${tc}">${e.risk}</span></td><td class="mono">${e.score}</td>`;
+        tbody.appendChild(tr);
+      });
+    }
+
+    // ════════════════════════════════════════
+    //  DASHBOARD
+    // ════════════════════════════════════════
+    let dashChart = null;
+    function updateDashboard() {
+      const { rows, cols, hall, allocated } = state;
+      const total = rows * cols;
+      document.getElementById('s-total').textContent = total;
+      document.getElementById('s-total-meta').textContent = `${rows} × ${cols} hall`;
+      if (!allocated) {
+        ['s-alloc', 's-high', 's-safety'].forEach(id => document.getElementById(id).textContent = '—');
+        document.getElementById('s-alloc-meta').textContent = '0% filled';
+        document.getElementById('s-high-meta').textContent = '—';
+        document.getElementById('s-safety-meta').textContent = 'not run yet';
+        document.getElementById('prog-pct').textContent = '0%';
+        document.getElementById('prog-bar').style.width = '0%';
+        return;
+      }
+      const { score, low, med, high, total: t } = calcSafetyScore(hall, rows, cols);
+      const pct = Math.round(t / total * 100);
+      document.getElementById('s-alloc').textContent = t;
+      document.getElementById('s-alloc-meta').textContent = pct + '% filled';
+      document.getElementById('s-high').textContent = high;
+      document.getElementById('s-high-meta').textContent = high === 0 ? 'zero conflicts!' : high + ' to review';
+      document.getElementById('s-safety').textContent = score + '%';
+      document.getElementById('s-safety-meta').textContent = score >= 90 ? 'Excellent' : score >= 75 ? 'Good' : 'Needs review';
+      document.getElementById('prog-pct').textContent = pct + '%';
+      document.getElementById('prog-bar').style.width = pct + '%';
+      const deptEl = document.getElementById('dept-dist');
+      const dc = {}; state.auditLog.forEach(e => dc[e.student.dept] = (dc[e.student.dept] || 0) + 1);
+      deptEl.innerHTML = Object.entries(dc).map(([dept, count]) => {
+        const d = state.departments.find(d => d.name === dept);
+        const p = Math.round(count / t * 100);
+        return `<div class="risk-row"><div style="font-family:var(--font-mono);font-size:11px;color:var(--muted);width:52px;">${dept}</div><div class="risk-bar-wrap" style="flex:1"><div class="risk-bar" style="width:${p}%;background:${d?.color || 'var(--gold)'};"></div></div><div style="font-family:var(--font-mono);font-size:11px;color:var(--ink3);width:32px;text-align:right;">${count}</div></div>`;
+      }).join('');
+      const ctx = document.getElementById('dashRiskChart').getContext('2d');
+      if (dashChart) dashChart.destroy();
+      dashChart = new Chart(ctx, {
+        type: 'doughnut',
+        data: { labels: ['Low Risk', 'Medium Risk', 'High Risk'], datasets: [{ data: [low, med, high], backgroundColor: ['rgba(74,124,89,0.75)', 'rgba(184,146,58,0.75)', 'rgba(192,82,42,0.75)'], borderWidth: 0, hoverOffset: 6 }] },
+        options: { responsive: true, cutout: '68%', plugins: { legend: { position: 'bottom', labels: { color: '#8c7d6e', font: { family: 'DM Mono', size: 11 }, padding: 16 } }, tooltip: { callbacks: { label: c => ` ${c.label}: ${c.raw} seats` } } } }
+      });
+    }
+
+    // ════════════════════════════════════════
+    //  ANALYTICS
+    // ════════════════════════════════════════
+    let rdc = null, drc = null;
+    function updateAnalytics() {
+      if (!state.allocated) return;
+      const { hall, rows, cols } = state;
+      const sb = {}, dr = {};
+      state.departments.forEach(d => dr[d.name] = { low: 0, med: 0, high: 0 });
+      for (let r = 0; r < rows; r++)for (let c = 0; c < cols; c++) {
+        const s = hall[r][c]; if (!s) continue;
+        const sc = state.scores[r][c], cat = getRiskCategory(sc);
+        sb[sc] = (sb[sc] || 0) + 1;
+        if (dr[s.dept]) { if (cat === 'LOW') dr[s.dept].low++; else if (cat === 'MEDIUM') dr[s.dept].med++; else dr[s.dept].high++; }
+      }
+      const ctx1 = document.getElementById('riskDistChart').getContext('2d');
+      if (rdc) rdc.destroy();
+      const sk = Object.keys(sb).sort((a, b) => a - b);
+      rdc = new Chart(ctx1, {
+        type: 'bar',
+        data: { labels: sk.map(k => 'Score ' + k), datasets: [{ label: 'Seats', data: sk.map(k => sb[k]), backgroundColor: sk.map(k => { const c = getRiskCategory(parseInt(k)); return c === 'LOW' ? 'rgba(74,124,89,0.65)' : c === 'MEDIUM' ? 'rgba(184,146,58,0.65)' : 'rgba(192,82,42,0.65)'; }), borderRadius: 5, borderWidth: 0 }] },
+        options: { responsive: true, plugins: { legend: { display: false } }, scales: { x: { ticks: { color: '#8c7d6e', font: { family: 'DM Mono', size: 10 } }, grid: { color: 'rgba(26,22,18,0.04)' } }, y: { ticks: { color: '#8c7d6e', font: { family: 'DM Mono', size: 10 } }, grid: { color: 'rgba(26,22,18,0.04)' }, beginAtZero: true } } }
+      });
+      const ctx2 = document.getElementById('deptRiskChart').getContext('2d');
+      if (drc) drc.destroy();
+      const depts = Object.keys(dr);
+      drc = new Chart(ctx2, {
+        type: 'bar',
+        data: { labels: depts, datasets: [{ label: 'Low', data: depts.map(d => dr[d].low), backgroundColor: 'rgba(74,124,89,0.65)', borderRadius: 4, borderWidth: 0 }, { label: 'Medium', data: depts.map(d => dr[d].med), backgroundColor: 'rgba(184,146,58,0.65)', borderWidth: 0 }, { label: 'High', data: depts.map(d => dr[d].high), backgroundColor: 'rgba(192,82,42,0.65)', borderWidth: 0 }] },
+        options: { responsive: true, indexAxis: 'y', plugins: { legend: { labels: { color: '#8c7d6e', font: { family: 'DM Mono', size: 10 } } } }, scales: { x: { stacked: true, ticks: { color: '#8c7d6e', font: { family: 'DM Mono', size: 10 } }, grid: { color: 'rgba(26,22,18,0.04)' }, beginAtZero: true }, y: { stacked: true, ticks: { color: '#8c7d6e', font: { family: 'DM Mono', size: 10 } }, grid: { color: 'rgba(26,22,18,0.04)' } } } }
+      });
+      // Conflicts
+      const conflicts = [];
+      for (let r = 0; r < rows; r++)for (let c = 0; c < cols; c++) {
+        const s = hall[r][c]; if (!s) continue;
+        DIRS.forEach(({ d: [dr2, dc2], w }) => { const nr = r + dr2, nc = c + dc2; if (nr >= 0 && nr < rows && nc >= 0 && nc < cols && hall[nr][nc]?.dept === s.dept) conflicts.push({ from: `R${r + 1}C${c + 1}`, to: `R${nr + 1}C${nc + 1}`, dept: s.dept, w }); });
+      }
+      const seen = new Set();
+      const uniq = conflicts.filter(c => { const k = [c.from, c.to].sort().join('-'); if (seen.has(k)) return false; seen.add(k); return true; });
+      const confEl = document.getElementById('conflictList');
+      if (!uniq.length) { confEl.innerHTML = '<div class="tag tag-sage" style="padding:8px 14px;">✓ Zero conflicts — perfect separation</div>'; }
+      else { confEl.innerHTML = uniq.slice(0, 12).map(c => `<div style="display:flex;justify-content:space-between;align-items:center;padding:9px 13px;background:var(--cream);border:1px solid var(--border);border-radius:8px;font-size:11.5px;font-family:var(--font-mono);"><span style="color:var(--ink3);">${c.from} ↔ ${c.to}</span><span class="tag tag-ink">${c.dept}</span><span class="tag ${c.w === 3 ? 'tag-rust' : 'tag-gold'}">w:${c.w}</span></div>`).join('') + (uniq.length > 12 ? `<div style="font-size:11px;color:var(--muted);text-align:center;padding:8px;font-family:var(--font-mono);">+${uniq.length - 12} more</div>` : ''); }
+      drawHeatmap();
+    }
+    function drawHeatmap() {
+      const canvas = document.getElementById('heatmapCanvas');
+      const { hall, scores, rows, cols } = state;
+      const cw = Math.max(12, Math.floor((canvas.parentElement.clientWidth - 48) / cols));
+      const ch = Math.max(12, Math.min(28, cw));
+      canvas.width = cw * cols; canvas.height = ch * rows;
+      const ctx = canvas.getContext('2d');
+      for (let r = 0; r < rows; r++)for (let c = 0; c < cols; c++) {
+        const s = hall[r][c], sc = scores[r]?.[c] ?? 0;
+        ctx.fillStyle = !s ? '#e4ddd0' : getRiskCategory(sc) === 'HIGH' ? 'rgba(192,82,42,0.6)' : getRiskCategory(sc) === 'MEDIUM' ? 'rgba(184,146,58,0.55)' : 'rgba(74,124,89,0.5)';
+        ctx.fillRect(c * cw, r * ch, cw - 2, ch - 2);
+        if (s) { ctx.fillStyle = 'rgba(26,22,18,0.4)'; ctx.font = `bold ${Math.max(7, cw / 5)}px DM Mono`; ctx.textAlign = 'center'; ctx.fillText(sc, c * cw + cw / 2, r * ch + ch / 2 + 3); }
+      }
+    }
+
+    // ════════════════════════════════════════
+    //  SIMULATION
+    // ════════════════════════════════════════
+    let simChart = null;
+    const wait = ms => new Promise(r => setTimeout(r, ms));
+    async function runSimulation() {
+      const { rows, cols, numStudents, departments } = state; const N = 10;
+      const steps = [
+        { name: 'Generate student pools', desc: `${N}× Fisher-Yates shuffled pools of ${numStudents} students` },
+        { name: 'Run Random Allocation', desc: `${N} uncontrolled random placements` },
+        { name: 'Run CSP+Greedy Allocation', desc: `${N} constraint-satisfied greedy runs` },
+        { name: 'Score all allocations', desc: '8-directional weighted graph risk scoring' },
+        { name: 'Compute statistics', desc: 'Mean, min, max safety scores for each mode' },
+        { name: 'Render comparison', desc: 'Bar chart & winner card' },
+      ];
+      const se = document.getElementById('simSteps');
+      se.innerHTML = steps.map((s, i) => `<div class="sim-step" id="step-${i}"><div class="step-num">${i + 1}</div><div><div class="step-name">${s.name}</div><div class="step-desc">${s.desc}</div></div></div>`).join('');
+      const mark = async (i, d = 120) => { await wait(d); document.getElementById(`step-${i}`).className = 'sim-step running'; await wait(d * 3); document.getElementById(`step-${i}`).className = 'sim-step done'; document.getElementById(`step-${i}`).querySelector('.step-num').textContent = '✓'; };
+      const rs = [], cs = [];
+      await mark(0, 80); await mark(1, 100);
+      for (let i = 0; i < N; i++) { const h = emptyHall(rows, cols); const p = generateStudents(numStudents, departments); randomAllocation(h, [...p]); rs.push(calcSafetyScore(h, rows, cols).score); }
+      await mark(2, 100);
+      for (let i = 0; i < N; i++) { const h = emptyHall(rows, cols); const p = generateStudents(numStudents, departments); greedyAllocation(h, [...p], rows, cols); cs.push(calcSafetyScore(h, rows, cols).score); }
+      await mark(3, 80); await mark(4, 80);
+      const ra = Math.round(rs.reduce((a, b) => a + b, 0) / N), ca = Math.round(cs.reduce((a, b) => a + b, 0) / N);
+      document.getElementById('comp-random-score').textContent = ra + '%';
+      document.getElementById('comp-csp-score').textContent = ca + '%';
+      document.getElementById('comp-random-stats').innerHTML = `<div style="font-size:11px;font-family:var(--font-mono);color:var(--muted);">Min: ${Math.min(...rs)}% · Max: ${Math.max(...rs)}%</div>`;
+      document.getElementById('comp-csp-stats').innerHTML = `<div style="font-size:11px;font-family:var(--font-mono);color:var(--muted);">Min: ${Math.min(...cs)}% · Max: ${Math.max(...cs)}%</div>`;
+      document.getElementById('comp-random').className = 'compare-card loser';
+      document.getElementById('comp-csp').className = 'compare-card winner';
+      const ctx = document.getElementById('simChart').getContext('2d');
+      if (simChart) simChart.destroy();
+      simChart = new Chart(ctx, {
+        type: 'bar',
+        data: { labels: Array.from({ length: N }, (_, i) => `Run ${i + 1}`), datasets: [{ label: 'Random', data: rs, backgroundColor: 'rgba(192,82,42,0.55)', borderRadius: 4, borderWidth: 0 }, { label: 'CSP+Greedy', data: cs, backgroundColor: 'rgba(74,124,89,0.65)', borderRadius: 4, borderWidth: 0 }] },
+        options: { responsive: true, plugins: { legend: { labels: { color: '#8c7d6e', font: { family: 'DM Mono', size: 11 } } } }, scales: { x: { ticks: { color: '#8c7d6e', font: { family: 'DM Mono', size: 10 } }, grid: { color: 'rgba(26,22,18,0.04)' } }, y: { ticks: { color: '#8c7d6e', font: { family: 'DM Mono', size: 10 } }, grid: { color: 'rgba(26,22,18,0.04)' }, min: 0, max: 100 } } }
+      });
+      await mark(5, 40);
+      showToast('✓ Simulation done — CSP+Greedy wins by ' + Math.abs(ca - ra) + '%');
+    }
+
+    // ════════════════════════════════════════
+    //  REPORT
+    // ════════════════════════════════════════
+    function updateReport() {
+      if (!state.allocated) return;
+      const { hall, rows, cols } = state;
+      const { score, low, med, high, total } = calcSafetyScore(hall, rows, cols);
+      document.getElementById('report-score').textContent = score + '%';
+      document.getElementById('report-grade').textContent = score >= 90 ? 'Excellent — Highly Secure' : score >= 75 ? 'Good — Minor Review Needed' : 'Needs Improvement';
+      document.getElementById('report-stats').innerHTML = `
+    <div class="risk-row"><div class="risk-label">Low Risk</div><div class="risk-bar-wrap"><div class="risk-bar" style="width:${Math.round(low / total * 100)}%;background:var(--sage);"></div></div><div class="risk-val">${low}</div></div>
+    <div class="risk-row"><div class="risk-label">Medium Risk</div><div class="risk-bar-wrap"><div class="risk-bar" style="width:${Math.round(med / total * 100)}%;background:var(--gold);"></div></div><div class="risk-val">${med}</div></div>
+    <div class="risk-row"><div class="risk-label">High Risk</div><div class="risk-bar-wrap"><div class="risk-bar" style="width:${Math.round(high / total * 100)}%;background:var(--rust);"></div></div><div class="risk-val">${high}</div></div>
+    <div class="risk-row"><div class="risk-label">Total Filled</div><div class="risk-bar-wrap"><div class="risk-bar" style="width:${Math.round(total / (rows * cols) * 100)}%;background:var(--gold);"></div></div><div class="risk-val">${total}</div></div>
+  `;
+      const tbody = document.getElementById('reportTableBody'); tbody.innerHTML = '';
+      state.auditLog.forEach((e, i) => {
+        const tc = e.risk === 'LOW' ? 'tag-sage' : e.risk === 'MEDIUM' ? 'tag-gold' : 'tag-rust';
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td class="mono">${i + 1}</td><td class="mono">${e.student.id}</td><td>${e.student.name}</td><td><span class="tag tag-ink">${e.student.dept}</span></td><td class="mono">${e.seat}</td><td class="mono">${e.row + 1}</td><td class="mono">${e.col + 1}</td><td><span class="tag ${tc}">${e.risk}</span></td><td class="mono">${e.score}</td>`;
+        tbody.appendChild(tr);
+      });
+      const tl = document.getElementById('reportTimeline');
+      if (!state.timeline.length) { tl.innerHTML = '<div style="font-size:12px;color:var(--muted);font-family:var(--font-mono);">Empty.</div>'; return; }
+      tl.innerHTML = state.timeline.map(t => `<div class="timeline-item"><div class="timeline-title">${t.title}</div><div class="timeline-sub">${t.time} · ${t.desc}</div></div>`).join('');
+    }
+
+    // ════════════════════════════════════════
+    //  CONFIG
+    // ════════════════════════════════════════
+    function renderDeptConfig() {
+      const el = document.getElementById('dept-config');
+      el.innerHTML = state.departments.map((d, i) => `<div class="dept-chip" style="background:${d.color}18;color:${d.color};border-color:${d.color}44;">${d.name}<span onclick="removeDept(${i})" style="margin-left:7px;cursor:pointer;opacity:.6;font-size:11px;">✕</span></div>`).join('');
+      document.getElementById('dept-summary').textContent = `${state.departments.length} departments · ${state.numStudents} students · ≈${Math.round(state.numStudents / state.departments.length)} per dept`;
+    }
+    window.removeDept = i => { if (state.departments.length <= 2) { showToast('⚠ Need at least 2 departments'); return; } state.departments.splice(i, 1); renderDeptConfig(); };
+
+    function refreshAll() { updateDashboard(); renderHallGrid(); renderSeatTable(); updateAnalytics(); updateReport(); }
+
+    // ════════════════════════════════════════
+    //  TOAST
+    // ════════════════════════════════════════
+    let tt = null;
+    function showToast(msg) { const t = document.getElementById('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(tt); tt = setTimeout(() => t.classList.remove('show'), 3500); }
+
+    // ════════════════════════════════════════
+    //  NAVIGATION
+    // ════════════════════════════════════════
+    const ptitles = { dashboard: 'Overview — Dashboard', config: 'Config — Configuration', allocation: 'Hall — Allocation', analytics: 'Risk — Analytics', simulation: 'Sim — Simulation', algorithms: 'Ref — Algorithms', report: 'Export — Report' };
+    document.querySelectorAll('.nav-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const p = item.dataset.page;
+        document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+        item.classList.add('active');
+        document.querySelectorAll('.page').forEach(pg => pg.classList.remove('active'));
+        document.getElementById('page-' + p).classList.add('active');
+        document.getElementById('topbarTitle').innerHTML = ptitles[p];
+        document.getElementById('sidebar').classList.remove('open');
+        if (p === 'analytics' && state.allocated) setTimeout(drawHeatmap, 100);
+      });
+    });
+    document.getElementById('menuToggle').addEventListener('click', () => document.getElementById('sidebar').classList.toggle('open'));
+    ['runAllocBtn', 'dashRunBtn', 'allocRunBtn'].forEach(id => { const el = document.getElementById(id); if (el) el.addEventListener('click', runAllocation); });
+    document.getElementById('resetBtn').addEventListener('click', () => {
+      state.hall = emptyHall(state.rows, state.cols); state.scores = []; state.allocated = false; state.auditLog = []; state.timeline = [];
+      refreshAll(); showToast('↺ State reset');
+    });
+    document.getElementById('applyConfigBtn').addEventListener('click', () => {
+      state.rows = Math.max(3, Math.min(20, parseInt(document.getElementById('cfg-rows').value) || 10));
+      state.cols = Math.max(3, Math.min(20, parseInt(document.getElementById('cfg-cols').value) || 12));
+      state.numStudents = Math.max(1, parseInt(document.getElementById('cfg-students').value) || 100);
+      state.mode = document.getElementById('cfg-mode').value;
+      document.getElementById('s-total').textContent = state.rows * state.cols;
+      document.getElementById('s-total-meta').textContent = `${state.rows} × ${state.cols} hall`;
+      renderDeptConfig(); showToast('✓ Config applied — click Run Allocation');
+    });
+    document.getElementById('addDeptBtn').addEventListener('click', () => {
+      const name = document.getElementById('dept-name-input').value.trim().toUpperCase();
+      const color = document.getElementById('dept-color-input').value;
+      if (!name) { showToast('⚠ Enter a department name'); return; }
+      if (state.departments.find(d => d.name === name)) { showToast('⚠ Department already exists'); return; }
+      state.departments.push({ name, color }); document.getElementById('dept-name-input').value = '';
+      renderDeptConfig(); showToast('✓ Added ' + name);
+    });
+    document.getElementById('simRunBtn').addEventListener('click', runSimulation);
+    document.getElementById('exportCSV').addEventListener('click', () => {
+      if (!state.allocated) { showToast('⚠ Run allocation first'); return; }
+      const rows = [['#', 'Student ID', 'Name', 'Department', 'Seat', 'Row', 'Col', 'Risk', 'Score']];
+      state.auditLog.forEach((e, i) => rows.push([i + 1, e.student.id, e.student.name, e.student.dept, e.seat, e.row + 1, e.col + 1, e.risk, e.score]));
+      const csv = rows.map(r => r.join(',')).join('\n');
+      const a = document.createElement('a'); a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv);
+      a.download = 'examguard_allocation.csv'; a.click(); showToast('✓ CSV exported');
+    });
+
+    // ════════════════════════════════════════
+    //  INIT
+    // ════════════════════════════════════════
+    renderDeptConfig();
+    renderHallGrid();
+    updateDashboard();
+  </script>
+</body>
+
+</html>
